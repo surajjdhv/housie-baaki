@@ -791,10 +791,16 @@ function Home({
         )}
       </section>
       {!history && (
-        <div className="bottom-note">
-          <span>✧</span> For family get-togethers, office parties, and every
-          “last game, pakka.” <span>✧</span>
-        </div>
+        <p className="creator-credit">
+          Created by{" "}
+          <a
+            href="https://surajjadhav.me"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Suraj Jadhav
+          </a>
+        </p>
       )}
       {create && (
         <Modal
