@@ -29,11 +29,11 @@ jobs:
       - run: npm test
       - run: npm run build
         env:
-          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_BASE_PATH: /
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
         env:
-          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_BASE_PATH: /
       - name: Upload browser diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
