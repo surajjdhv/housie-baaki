@@ -70,6 +70,14 @@ test("QR generation, image decoding, tickets, claims, ties and undo all work off
   context,
   browser,
 }, testInfo) => {
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: async (data: ShareData) => {
+        Object.assign(window, { sharedRoundLink: data.url });
+      },
+    });
+  });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await hostRound(page);
@@ -82,17 +90,24 @@ test("QR generation, image decoding, tickets, claims, ties and undo all work off
   await expect(image).toBeVisible();
   const imageUrl = (await image.getAttribute("src"))!;
   const qr = Buffer.from(imageUrl.split(",")[1], "base64");
-  const roundLink = await page
-    .getByLabel("Round link", { exact: true })
-    .inputValue();
+  await expect(page.getByRole("dialog").getByRole("textbox")).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("host-round-qr.png") });
+  await page.getByRole("button", { name: "Share link", exact: true }).click();
+  const roundLink = await page.evaluate(
+    () => (window as unknown as { sharedRoundLink: string }).sharedRoundLink,
+  );
+
   await page.getByRole("button", { name: "Close dialog", exact: true }).click();
   await page
     .getByRole("button", { name: "Show round QR", exact: true })
     .click();
-  await expect(page.getByLabel("Round link", { exact: true })).toHaveValue(
-    roundLink,
-  );
+  await page.getByRole("button", { name: "Share link", exact: true }).click();
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { sharedRoundLink: string }).sharedRoundLink,
+    ),
+  ).toBe(roundLink);
+  await expect(page.getByRole("dialog").getByRole("textbox")).toHaveCount(0);
   await page.getByRole("button", { name: "Close dialog", exact: true }).click();
 
   const playerContext = await browser.newContext({
@@ -291,9 +306,13 @@ test("QR generation, image decoding, tickets, claims, ties and undo all work off
   await page
     .getByRole("button", { name: "Show round QR", exact: true })
     .click();
-  await expect(page.getByLabel("Round link", { exact: true })).toHaveValue(
-    roundLink,
-  );
+  await page.getByRole("button", { name: "Share link", exact: true }).click();
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { sharedRoundLink: string }).sharedRoundLink,
+    ),
+  ).toBe(roundLink);
+  await expect(page.getByRole("dialog").getByRole("textbox")).toHaveCount(0);
   expect(page.url()).toBe(hostUrl);
 
   await player
@@ -370,6 +389,75 @@ test("QR generation, image decoding, tickets, claims, ties and undo all work off
   await secondContext.close();
 });
 
+test("sharing falls back to copying, handles cancellation, and offers manual copy if blocked", async ({
+  page,
+  context,
+}) => {
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(navigator.clipboard, "writeText", {
+      configurable: true,
+      value: async (value: string) => {
+        Object.assign(window, { copiedRoundLink: value });
+      },
+    });
+  });
+  await hostRound(page);
+  await page
+    .getByRole("button", { name: "Show round QR", exact: true })
+    .click();
+  await expect(page.getByRole("dialog").getByRole("textbox")).toHaveCount(0);
+  await page.getByRole("button", { name: "Share link", exact: true }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "Round link copied" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { copiedRoundLink: string }).copiedRoundLink,
+    ),
+  ).toContain("#/join/HB1.");
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: async () => {
+        throw new DOMException("Cancelled", "AbortError");
+      },
+    });
+    Object.assign(window, { copiedRoundLink: "" });
+  });
+  await page.getByRole("button", { name: "Share link", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { copiedRoundLink: string }).copiedRoundLink,
+    ),
+  ).toBe("");
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "share", {
+      configurable: true,
+      value: async () => {
+        throw new DOMException("Unavailable", "NotAllowedError");
+      },
+    });
+    Object.defineProperty(navigator.clipboard, "writeText", {
+      configurable: true,
+      value: async () => {
+        throw new DOMException("Denied", "NotAllowedError");
+      },
+    });
+  });
+  await page.getByRole("button", { name: "Share link", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "Select and copy",
+  );
+  await expect(page.getByLabel("Round link", { exact: true })).toHaveValue(
+    /#\/join\/HB1\./,
+  );
+});
+
 test("custom prizes work with caller disabled, and changing inputs clears the preview", async ({
   page,
 }) => {
@@ -444,13 +532,11 @@ test("legacy automatic evidence remains historical after restore and winner corr
     ],
   };
   await page.goto("./#/backup");
-  await page
-    .getByLabel("Choose backup file")
-    .setInputFiles({
-      name: "old-v2.json",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(backup)),
-    });
+  await page.getByLabel("Choose backup file").setInputFiles({
+    name: "old-v2.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(backup)),
+  });
   await page
     .getByRole("button", { name: "Replace & restore", exact: true })
     .click();
@@ -474,9 +560,7 @@ test("legacy automatic evidence remains historical after restore and winner corr
     .getByRole("checkbox", { name: /^B/ })
     .uncheck();
   await page.getByRole("dialog").getByRole("checkbox", { name: /^A/ }).check();
-  await page
-    .getByRole("button", { name: "Save winners", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Save winners", exact: true }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await page.getByRole("link", { name: "Activity", exact: true }).click();
   await expect(

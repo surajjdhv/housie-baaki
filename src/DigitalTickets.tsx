@@ -6,6 +6,7 @@ import {
   Camera,
   Check,
   Copy,
+  Share2,
   ImagePlus,
   QrCode,
   ChevronLeft,
@@ -84,6 +85,8 @@ export function RoundQrModal({
   const [image, setImage] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [manualCopy, setManualCopy] = useState(false);
   const link = encodeRoundLink(
     {
       version: 1,
@@ -95,6 +98,38 @@ export function RoundQrModal({
     },
     appUrl(),
   );
+  async function shareLink() {
+    if (sharing) return;
+    setError("");
+    setCopied(false);
+    setManualCopy(false);
+    setSharing(true);
+    try {
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: `${g.name} · Round ${round.number}`,
+            text: "Join my Housie Baaki round",
+            url: link,
+          });
+          return;
+        } catch (error) {
+          if (error instanceof Error && error.name === "AbortError") return;
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(link);
+        setCopied(true);
+      } catch {
+        setManualCopy(true);
+        setError(
+          "Sharing and copying are unavailable. Select and copy the round link below.",
+        );
+      }
+    } finally {
+      setSharing(false);
+    }
+  }
   useEffect(() => {
     let alive = true;
     void import("qrcode")
@@ -145,23 +180,32 @@ export function RoundQrModal({
         Players open <strong>My tickets → Scan round QR</strong>. Each phone
         saves one ticket with its own four-digit ID.
       </p>
-      <label className="round-link-label">
-        Round link
-        <textarea readOnly value={link} aria-label="Round link" rows={3} />
-      </label>
       <button
-        className="button secondary full"
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(link);
-            setCopied(true);
-          } catch {
-            setError("Select and copy the round link above.");
-          }
-        }}
+        type="button"
+        className="button primary full"
+        disabled={sharing}
+        onClick={() => void shareLink()}
       >
-        <Copy size={16} /> {copied ? "Copied round link" : "Copy round link"}
+        {copied ? <Copy size={17} /> : <Share2 size={17} />}
+        {sharing ? "Sharing…" : "Share link"}
       </button>
+      {copied && (
+        <p className="share-link-status" role="status">
+          Round link copied. Paste it into your preferred app.
+        </p>
+      )}
+      {manualCopy && (
+        <label className="round-link-label manual-round-link">
+          Round link
+          <textarea
+            readOnly
+            value={link}
+            aria-label="Round link"
+            rows={3}
+            onFocus={(e) => e.target.select()}
+          />
+        </label>
+      )}
       <p className="form-hint">
         No connection between phones is needed. Joining does not update the
         host’s purchase log. Everyone must cache the app before going offline.

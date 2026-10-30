@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useRegisterSW } from "virtual:pwa-register/react";
+import { useAppUpdate, type AppUpdate } from "./useAppUpdate";
 import {
   ArrowRight,
   Check,
@@ -246,15 +246,14 @@ export default function App() {
     [],
   );
   const parts = hash.split("/").filter(Boolean);
+  const page = parts[0] || "home";
+  const ticketScreen = page === "tickets" && !!parts[1] && parts[1] !== "scan";
   const gatheringId = parts[0] === "g" ? parts[1] : undefined;
   const current = all?.find((g) => g.id === gatheringId);
   const activeRound = all?.some((g) =>
     g.rounds.some((r) => r.status === "playing"),
   );
-  const {
-    needRefresh: [needRefresh],
-    updateServiceWorker,
-  } = useRegisterSW();
+  const appUpdate = useAppUpdate(!all || !!activeRound || ticketScreen);
 
   useEffect(() => {
     const onHash = () => {
@@ -305,8 +304,6 @@ export default function App() {
       setBusy(false);
     }
   };
-  const page = parts[0] || "home";
-  const ticketScreen = page === "tickets" && !!parts[1] && parts[1] !== "scan";
 
   return (
     <div className={`app-shell ${ticketScreen ? "ticket-screen" : ""}`}>
@@ -377,10 +374,13 @@ export default function App() {
             </button>
           </div>
         </header>
-        {needRefresh && !activeRound && !ticketScreen && (
+        {appUpdate.needRefresh && !activeRound && !ticketScreen && (
           <div className="notice update-notice">
             A fresh version is ready. Your games stay saved.
-            <button onClick={() => void updateServiceWorker(true)}>
+            <button
+              disabled={appUpdate.checking}
+              onClick={() => void appUpdate.updateApp()}
+            >
               Update app <RotateCcw size={14} />
             </button>
           </div>
@@ -417,7 +417,7 @@ export default function App() {
               busy={busy}
             />
           ) : page === "backup" ? (
-            <BackupView act={act} busy={busy} />
+            <BackupView act={act} busy={busy} appUpdate={appUpdate} />
           ) : (
             <Home
               gatherings={all}
@@ -508,6 +508,7 @@ export default function App() {
             backup to keep a copy before clearing browser data or changing
             devices.
           </p>
+          <AppUpdateControl update={appUpdate} />
           <button
             className="button primary full"
             onClick={() => setHelp(false)}
@@ -3106,7 +3107,42 @@ function ActivityView({ g }: { g: Gathering }) {
   );
 }
 
-function BackupView({ act, busy }: { act: Act; busy: boolean }) {
+function AppUpdateControl({ update }: { update: AppUpdate }) {
+  return (
+    <section className="app-update-control" aria-label="App updates">
+      <div>
+        <h3>A little refresh.</h3>
+        <p>Check for the latest app. Your saved games and tickets stay here.</p>
+      </div>
+      <button
+        className="button secondary"
+        disabled={update.checking}
+        onClick={() => void update.updateApp()}
+      >
+        <RotateCcw
+          size={16}
+          className={update.checking ? "update-checking" : ""}
+        />
+        {update.checking ? "Checking…" : "Update app"}
+      </button>
+      {update.message && (
+        <p className="app-update-status" role="status">
+          {update.message}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function BackupView({
+  act,
+  busy,
+  appUpdate,
+}: {
+  act: Act;
+  busy: boolean;
+  appUpdate: AppUpdate;
+}) {
   const [backup, setBackup] = useState<Backup | null>(null);
   const input = useRef<HTMLInputElement>(null);
   async function download() {
@@ -3201,6 +3237,9 @@ function BackupView({ act, busy }: { act: Act; busy: boolean }) {
             <Upload size={17} /> Choose backup
           </button>
         </section>
+      </div>
+      <div className="panel app-update-panel">
+        <AppUpdateControl update={appUpdate} />
       </div>
       <section className="install-guide panel">
         <Sparkles size={22} />

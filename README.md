@@ -42,7 +42,7 @@ Winner corrections recalculate dues and retain recorded payments. Mistaken payme
 ## Digital tickets: offline on every phone
 
 1. Everyone loads the updated app online once before going offline, so its app shell, scanner fallback worker, and QR generator are cached.
-2. The host starts a round and taps **Show round QR**. The app saves a random round key before displaying it. Reopening this QR uses the same key.
+2. The host starts a round and taps **Show round QR**. The app saves a random round key before displaying it. Reopening this QR uses the same key. **Share link** opens your phone’s share sheet; browsers without sharing support copy the link instead. The long link stays hidden unless manual copying is needed.
 3. Players open **My tickets → Scan round QR**. Use the camera, choose a QR image, or paste the host’s round link. No registration or return QR is required.
 4. Each browser profile receives one saved ticket per round, with a four-digit ID including leading zeros. Scan the same round again to restore it; there is no reroll button. The ticket opens in a full-screen paper-style view, best held sideways. Tap numbers to stamp or unstamp them. Marks survive refreshes and rotation. Use **Back to my tickets** to leave.
 5. The host still records names and purchases before play. Joining does not update the host, and phones do not synchronize calls or marks. The host checks every claim manually and records one winning ticket after confirming the preview. This works for custom prizes and without the app’s number caller.
@@ -78,7 +78,7 @@ VITE_BASE_PATH=/ npm run preview
 
 For a fork hosted at `https://<username>.github.io/<repository>/` without a custom domain, change **both** `VITE_BASE_PATH` entries in `.github/workflows/deploy.yml` to `/<repository>/`. Hash navigation avoids server-side route rewrites. Keep the base path consistent between building, previewing, and browser tests.
 
-An update prompt appears when a new service worker is ready. It is deferred while any saved round is in play. Applying the update retains IndexedDB data.
+**Update app** is always available in **Backup & restore** and **How it works**. It checks for a new version online and applies a downloaded update while keeping IndexedDB data. Offline checks explain that a connection is needed; an already downloaded update can still be applied offline. Updates wait while any saved round is in play; finish or cancel the round, then update. A ready-update banner also appears outside active rounds and the full-screen ticket view.
 
 ## Verify
 
