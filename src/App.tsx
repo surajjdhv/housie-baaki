@@ -64,8 +64,20 @@ import {
   newRound,
   nextCalled,
   validateBudget,
-  validateBackup,
+  validateBackupContents,
 } from "./domain";
+import { Modal, type Act, type Change } from "./ui";
+import {
+  TicketWallet,
+  RoundQrModal,
+  DigitalClaimPanel,
+} from "./DigitalTickets";
+import {
+  createRoundKey,
+  inferredRule,
+  RULE_LABELS,
+  type VerificationRule,
+} from "./tickets";
 import { useEditorLock } from "./useEditorLock";
 
 const date = (n: number) =>
@@ -106,53 +118,6 @@ function Avatar({
     <span className={`avatar avatar-${index % 5} ${small ? "small" : ""}`}>
       {initials(name)}
     </span>
-  );
-}
-function Modal({
-  title,
-  description,
-  children,
-  close,
-  wide = false,
-}: {
-  title: string;
-  description?: string;
-  children: ReactNode;
-  close: () => void;
-  wide?: boolean;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    ref.current?.showModal();
-  }, []);
-  return (
-    <dialog
-      ref={ref}
-      className={`modal ${wide ? "wide" : ""}`}
-      onCancel={(e) => {
-        e.preventDefault();
-        close();
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) close();
-      }}
-      aria-labelledby="modal-title"
-    >
-      <div className="modal-top">
-        <div>
-          <h2 id="modal-title">{title}</h2>
-          {description && <p className="muted">{description}</p>}
-        </div>
-        <button
-          className="icon-button"
-          aria-label="Close dialog"
-          onClick={close}
-        >
-          <X size={20} />
-        </button>
-      </div>
-      {children}
-    </dialog>
   );
 }
 function Empty({
@@ -266,7 +231,6 @@ function Toast({
   );
 }
 
-type Act = (task: () => Promise<unknown>, success?: string) => Promise<boolean>;
 type InstallEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: string }>;
@@ -449,6 +413,13 @@ export default function App() {
                 </a>
               </Empty>
             )
+          ) : page === "tickets" || page === "join" ? (
+            <TicketWallet
+              route={parts.slice(1)}
+              joining={page === "join"}
+              act={act}
+              busy={busy}
+            />
           ) : page === "backup" ? (
             <BackupView act={act} busy={busy} />
           ) : (
@@ -468,6 +439,7 @@ export default function App() {
             {[
               ["home", "/", "Home", House],
               ["history", "/history", "Gatherings", History],
+              ["tickets", "/tickets", "My tickets", Ticket],
               ["backup", "/backup", "Backup & restore", Download],
             ].map(([value, href, label, Icon]) => {
               const I = Icon as typeof House;
@@ -475,8 +447,16 @@ export default function App() {
                 <a
                   key={String(value)}
                   href={`#${href}`}
-                  aria-current={page === value ? "page" : undefined}
-                  className={page === value ? "selected" : ""}
+                  aria-current={
+                    page === value || (value === "tickets" && page === "join")
+                      ? "page"
+                      : undefined
+                  }
+                  className={
+                    page === value || (value === "tickets" && page === "join")
+                      ? "selected"
+                      : ""
+                  }
                 >
                   <I size={22} />
                   <span>{String(label)}</span>
@@ -505,7 +485,7 @@ export default function App() {
               [
                 "02",
                 "Set the stakes",
-                "Log physical tickets and divide the pool into your favourite prizes.",
+                "Log ticket purchases and divide the pool into your favourite prizes. Share the round QR for digital tickets.",
               ],
               [
                 "03",
@@ -655,6 +635,14 @@ function Home({
             <TicketArt />
           </section>
         </div>
+      )}
+      {!history && (
+        <a
+          className="join-shortcut button secondary full"
+          href="#/tickets/scan"
+        >
+          <Ticket size={19} /> Scan round QR <ArrowRight size={17} />
+        </a>
       )}
       {!history && (
         <div className="stats-strip">
@@ -838,12 +826,6 @@ function Home({
   );
 }
 
-type Change = (
-  change: (g: Gathering) => void,
-  kind: string,
-  message: string | ((g: Gathering) => string),
-  roundId?: string,
-) => Promise<boolean>;
 function GatheringView({
   g,
   tab,
@@ -1047,6 +1029,7 @@ function GatheringView({
             key={selected.id}
             g={g}
             round={selected}
+            act={act}
             change={change}
             editable={editable && !busy}
           />
@@ -1386,14 +1369,17 @@ function RoundView({
   round,
   change,
   editable,
+  act,
 }: {
   g: Gathering;
   round: Round;
   change: Change;
   editable: boolean;
+  act: Act;
 }) {
   const [award, setAward] = useState<Prize | null>(null);
   const [cancel, setCancel] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [playMode, setPlayMode] = useState<"prizes" | "caller">(
     round.called.length ? "caller" : "prizes",
   );
@@ -1445,6 +1431,31 @@ function RoundView({
           )}
           {current && (
             <>
+              <button
+                className="button secondary"
+                disabled={!editable}
+                onClick={async () => {
+                  if (round.digital) {
+                    setSharing(true);
+                    return;
+                  }
+                  if (
+                    await change(
+                      (s) => {
+                        const r = s.rounds.find((r) => r.id === round.id)!;
+                        if (!r.digital)
+                          r.digital = { algorithm: 1, key: createRoundKey() };
+                      },
+                      "round",
+                      `Enabled offline digital tickets for round ${round.number}.`,
+                      round.id,
+                    )
+                  )
+                    setSharing(true);
+                }}
+              >
+                Show round QR
+              </button>
               <button
                 className="button secondary"
                 disabled={!editable}
@@ -1587,8 +1598,14 @@ function RoundView({
                   <div className="winner-chips">
                     {p.winners.map((w) => (
                       <span key={w.playerId}>
-                        <Check size={13} />
+                        {w.verification ? (
+                          <ShieldCheck size={13} />
+                        ) : (
+                          <Check size={13} />
+                        )}
                         {g.players.find((x) => x.id === w.playerId)?.name}
+                        {w.verification &&
+                          ` · #${w.verification.ticketId} verified`}
                         <strong>
                           {rupees(prizeShares(round, p)[w.playerId])}
                         </strong>
@@ -1685,12 +1702,16 @@ function RoundView({
             ))}
         </div>
       </details>
+      {sharing && round.digital && (
+        <RoundQrModal g={g} round={round} close={() => setSharing(false)} />
+      )}
       {award && (
         <AwardModal
           key={award.id}
           g={g}
           round={round}
           prize={award}
+          act={act}
           change={change}
           editable={editable}
           close={() => setAward(null)}
@@ -2032,57 +2053,81 @@ function RoundSetup({
               </div>
               <div className="prize-input-list">
                 {draft.prizes.map((p, i) => (
-                  <div className="prize-input-row" key={p.id}>
-                    <span className="prize-input-icon">
-                      <Gift size={17} />
-                    </span>
-                    <input
-                      aria-label={`Prize ${i + 1} name`}
-                      value={p.name}
-                      maxLength={80}
-                      onChange={(e) =>
-                        update((d) => {
-                          d.prizes[i].name = e.target.value;
-                        })
-                      }
-                      placeholder="Prize name"
-                    />
-                    <div className="input-affix prize-value">
-                      <span>{draft.mode === "percent" ? "%" : "₹"}</span>
+                  <div className="prize-setup-item" key={p.id}>
+                    <div className="prize-input-row">
+                      <span className="prize-input-icon">
+                        <Gift size={17} />
+                      </span>
                       <input
-                        aria-label={`Value for prize ${i + 1}`}
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        max={draft.mode === "percent" ? 100 : 1000000000}
-                        value={valueInputs[p.id] ?? String(p.value / 100)}
-                        onChange={(e) => {
-                          setValueInputs((v) => ({
-                            ...v,
-                            [p.id]: e.target.value,
-                          }));
+                        aria-label={`Prize ${i + 1} name`}
+                        value={p.name}
+                        maxLength={80}
+                        onChange={(e) =>
                           update((d) => {
-                            try {
-                              d.prizes[i].value = parseMoney(e.target.value);
-                            } catch {
-                              d.prizes[i].value = 0;
-                            }
-                          });
-                        }}
+                            d.prizes[i].verificationRule = inferredRule(
+                              d.prizes[i],
+                            );
+                            d.prizes[i].name = e.target.value;
+                          })
+                        }
+                        placeholder="Prize name"
                       />
+                      <div className="input-affix prize-value">
+                        <span>{draft.mode === "percent" ? "%" : "₹"}</span>
+                        <input
+                          aria-label={`Value for prize ${i + 1}`}
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          max={draft.mode === "percent" ? 100 : 1000000000}
+                          value={valueInputs[p.id] ?? String(p.value / 100)}
+                          onChange={(e) => {
+                            setValueInputs((v) => ({
+                              ...v,
+                              [p.id]: e.target.value,
+                            }));
+                            update((d) => {
+                              try {
+                                d.prizes[i].value = parseMoney(e.target.value);
+                              } catch {
+                                d.prizes[i].value = 0;
+                              }
+                            });
+                          }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label={`Remove ${p.name || "prize"}`}
+                        onClick={() =>
+                          update((d) => {
+                            d.prizes.splice(i, 1);
+                          })
+                        }
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={`Remove ${p.name || "prize"}`}
-                      onClick={() =>
-                        update((d) => {
-                          d.prizes.splice(i, 1);
-                        })
-                      }
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <label className="prize-rule-label">
+                      Verify as
+                      <select
+                        aria-label={`Verification rule for prize ${i + 1}`}
+                        value={inferredRule(p)}
+                        onChange={(e) =>
+                          update((d) => {
+                            d.prizes[i].verificationRule = e.target
+                              .value as VerificationRule;
+                          })
+                        }
+                      >
+                        {Object.entries(RULE_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
                 ))}
               </div>
@@ -2104,6 +2149,7 @@ function RoundSetup({
                           d.prizes.push({
                             id: uid(),
                             name: n,
+                            verificationRule: inferredRule({ name: n }),
                             value: 0,
                             winners: [],
                           });
@@ -2122,6 +2168,7 @@ function RoundSetup({
                       d.prizes.push({
                         id: uid(),
                         name: "",
+                        verificationRule: "manual",
                         value: 0,
                         winners: [],
                       });
@@ -2328,6 +2375,7 @@ function AwardModal({
   change,
   editable,
   close,
+  act,
 }: {
   g: Gathering;
   round: Round;
@@ -2335,13 +2383,24 @@ function AwardModal({
   change: Change;
   editable: boolean;
   close: () => void;
+  act: Act;
 }) {
+  const [mode, setMode] = useState<"manual" | "verify">("manual");
   const [counts, setCounts] = useState<Record<string, number>>(
     Object.fromEntries(prize.winners.map((w) => [w.playerId, w.tickets])),
   );
   const winners = Object.entries(counts)
     .filter(([, n]) => n > 0)
-    .map(([playerId, tickets]) => ({ playerId, tickets }));
+    .map(([playerId, tickets]) => {
+      const previous = prize.winners.find((w) => w.playerId === playerId);
+      return {
+        playerId,
+        tickets,
+        ...(previous?.verification && previous.tickets === tickets
+          ? { verification: previous.verification }
+          : {}),
+      };
+    });
   const shares = winners.length
     ? prizeShares(round, { ...prize, winners })
     : {};
@@ -2367,7 +2426,7 @@ function AwardModal({
             .prizes.find((p) => p.id === prize.id)!.winners = winners;
         },
         "award",
-        `${round.status === "completed" ? "Corrected" : old ? "Updated" : "Awarded"} ${prize.name} in round ${round.number}: ${result || "cleared winners"}${old ? `. Previously: ${old}` : ""}.`,
+        `${round.status === "completed" ? "Corrected" : old ? "Updated" : "Awarded"} ${prize.name} in round ${round.number}: ${result || "cleared winners"}${old ? `. Previously: ${old}` : ""}. Manual award/correction; any unchanged verification evidence is retained.`,
         round.id,
       )
     )
@@ -2379,86 +2438,113 @@ function AwardModal({
       description={`${rupees(prizeAmounts(round)[prize.id])} to share. Choose winners and the number of winning tickets each holds.`}
       close={close}
     >
-      <form onSubmit={save}>
-        <div className="award-players">
-          {g.players
-            .filter((p) => round.tickets[p.id] > 0)
-            .map((p, i) => (
-              <div
-                className={`award-player ${counts[p.id] ? "chosen" : ""}`}
-                key={p.id}
-              >
-                <label className="winner-label">
-                  <input
-                    type="checkbox"
-                    checked={!!counts[p.id]}
-                    disabled={!editable}
-                    onChange={(e) =>
-                      setCounts((c) => ({
-                        ...c,
-                        [p.id]: e.target.checked ? 1 : 0,
-                      }))
-                    }
-                  />
-                  <Avatar name={p.name} index={i} small />
-                  <span>
-                    <strong>{p.name}</strong>
-                    <small>
-                      {round.tickets[p.id]} bought ·{" "}
-                      {counts[p.id]
-                        ? rupees(shares[p.id] || 0)
-                        : "Not selected"}
-                    </small>
-                  </span>
-                </label>
-                {counts[p.id] > 0 && (
-                  <label className="winning-count">
-                    Winning tickets
+      <div className="segmented award-mode">
+        <button
+          type="button"
+          aria-pressed={mode === "manual"}
+          onClick={() => setMode("manual")}
+        >
+          Manual award
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === "verify"}
+          onClick={() => setMode("verify")}
+        >
+          Verify digital ticket
+        </button>
+      </div>
+      {mode === "verify" ? (
+        <DigitalClaimPanel
+          g={g}
+          round={round}
+          prize={prize}
+          editable={editable}
+          act={act}
+          close={close}
+        />
+      ) : (
+        <form onSubmit={save}>
+          <div className="award-players">
+            {g.players
+              .filter((p) => round.tickets[p.id] > 0)
+              .map((p, i) => (
+                <div
+                  className={`award-player ${counts[p.id] ? "chosen" : ""}`}
+                  key={p.id}
+                >
+                  <label className="winner-label">
                     <input
-                      type="number"
-                      min="1"
-                      max={round.tickets[p.id]}
-                      value={counts[p.id]}
-                      required
+                      type="checkbox"
+                      checked={!!counts[p.id]}
                       disabled={!editable}
                       onChange={(e) =>
                         setCounts((c) => ({
                           ...c,
-                          [p.id]: Math.max(
-                            1,
-                            Math.min(
-                              round.tickets[p.id],
-                              Math.floor(Number(e.target.value)),
-                            ),
-                          ),
+                          [p.id]: e.target.checked ? 1 : 0,
                         }))
                       }
                     />
+                    <Avatar name={p.name} index={i} small />
+                    <span>
+                      <strong>{p.name}</strong>
+                      <small>
+                        {round.tickets[p.id]} bought ·{" "}
+                        {counts[p.id]
+                          ? rupees(shares[p.id] || 0)
+                          : "Not selected"}
+                      </small>
+                    </span>
                   </label>
-                )}
-              </div>
-            ))}
-        </div>
-        <p className="form-hint">
-          A tie? Each winning ticket gets an equal share. You check physical
-          claims.
-        </p>
-        {round.status === "completed" && (
-          <p className="info-box">
-            <History size={17} /> This correction updates dues. Recorded
-            payments stay unchanged.
+                  {counts[p.id] > 0 && (
+                    <label className="winning-count">
+                      Winning tickets
+                      <input
+                        type="number"
+                        min="1"
+                        max={round.tickets[p.id]}
+                        value={counts[p.id]}
+                        required
+                        disabled={!editable}
+                        onChange={(e) =>
+                          setCounts((c) => ({
+                            ...c,
+                            [p.id]: Math.max(
+                              1,
+                              Math.min(
+                                round.tickets[p.id],
+                                Math.floor(Number(e.target.value)),
+                              ),
+                            ),
+                          }))
+                        }
+                      />
+                    </label>
+                  )}
+                </div>
+              ))}
+          </div>
+          <p className="form-hint">
+            A tie? Each winning ticket gets an equal share. You check physical
+            claims.
           </p>
-        )}
-        <button
-          className="button primary full"
-          disabled={
-            !editable || (round.status === "completed" && !winners.length)
-          }
-        >
-          <Check size={17} />{" "}
-          {winners.length ? "Save winners" : "Clear winners"}
-        </button>
-      </form>
+          {round.status === "completed" && (
+            <p className="info-box">
+              <History size={17} /> This correction updates dues. Recorded
+              payments stay unchanged.
+            </p>
+          )}
+          <button
+            className="button primary full"
+            disabled={
+              !editable || (round.status === "completed" && !winners.length)
+            }
+          >
+            <Check size={17} />{" "}
+            {winners.length ? "Save winners" : "Clear winners"}
+          </button>
+        </form>
+      )}
     </Modal>
   );
 }
@@ -3021,6 +3107,18 @@ function ActivityView({ g }: { g: Gathering }) {
               </span>
               <div>
                 <p>{a.message}</p>
+                {a.verification && (
+                  <details className="activity-verification">
+                    <summary>
+                      Verified ticket #{a.verification.ticketId} ·{" "}
+                      {RULE_LABELS[a.verification.rule]}
+                    </summary>
+                    <p>
+                      Called numbers at award:{" "}
+                      {a.verification.called.join(", ")}
+                    </p>
+                  </details>
+                )}
                 <small>
                   {date(a.createdAt)} · {time(a.createdAt)}
                 </small>
@@ -3057,7 +3155,7 @@ function BackupView({ act, busy }: { act: Act; busy: boolean }) {
       if (file.size > 20 * 1024 * 1024)
         throw new Error("Choose a backup smaller than 20 MB.");
       try {
-        setBackup(validateBackup(JSON.parse(await file.text())));
+        setBackup(await validateBackupContents(JSON.parse(await file.text())));
       } catch {
         throw new Error(
           "This backup is invalid or unsupported. Your games have not been changed.",
@@ -3094,8 +3192,8 @@ function BackupView({ act, busy }: { act: Act; busy: boolean }) {
           </span>
           <h2>Take your table with you.</h2>
           <p>
-            Download all gatherings, players, rounds, payments, and activity as
-            one JSON file.
+            Download all gatherings, players, rounds, payments, activity, and
+            saved digital tickets as one JSON file.
           </p>
           <button
             className="button primary"
@@ -3145,7 +3243,7 @@ function BackupView({ act, busy }: { act: Act; busy: boolean }) {
       {backup && (
         <Modal
           title="Bring back this table?"
-          description={`Backup from ${date(backup.exportedAt)} · ${backup.gatherings.length} gatherings · ${backup.gatherings.reduce((a, g) => a + g.rounds.length, 0)} rounds`}
+          description={`Backup from ${date(backup.exportedAt)} · ${backup.gatherings.length} gatherings · ${backup.gatherings.reduce((a, g) => a + g.rounds.length, 0)} rounds · ${backup.playerTickets.length} saved tickets`}
           close={() => !busy && setBackup(null)}
         >
           <p className="info-box">

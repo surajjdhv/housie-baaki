@@ -1,4 +1,15 @@
 import { z } from "zod";
+import {
+  checkTicket,
+  generateTicket,
+  inferredRule,
+  playerTicketSchema,
+  roundKeySchema,
+  verificationEvidenceSchema,
+  verificationRuleSchema,
+  verifyTicket,
+  type VerificationResult,
+} from "./tickets";
 
 const id = z.string().min(1).max(100);
 const name = z.string().trim().min(1).max(80);
@@ -9,9 +20,14 @@ export const prizeSchema = z.object({
   id,
   name,
   value: money,
+  verificationRule: verificationRuleSchema.optional(),
   winners: z
     .array(
-      z.object({ playerId: id, tickets: z.number().int().min(1).max(10_000) }),
+      z.object({
+        playerId: id,
+        tickets: z.number().int().min(1).max(10_000),
+        verification: verificationEvidenceSchema.optional(),
+      }),
     )
     .max(1000),
 });
@@ -25,6 +41,9 @@ export const roundSchema = z.object({
   prizes: z.array(prizeSchema).max(100),
   caller: z.boolean(),
   called: z.array(z.number().int().min(1).max(90)).max(90),
+  digital: z
+    .object({ algorithm: z.literal(1), key: roundKeySchema })
+    .optional(),
   createdAt: time,
   completedAt: time.optional(),
 });
@@ -53,14 +72,30 @@ export const activitySchema = z.object({
   createdAt: time,
   kind: z.string().min(1).max(80),
   message: z.string().min(1).max(200_000),
+  prizeId: id.optional(),
+  playerId: id.optional(),
+  verification: verificationEvidenceSchema.optional(),
 });
-export const backupSchema = z.object({
+const legacyBackupSchema = z.object({
   app: z.literal("housie-baaki"),
   version: z.literal(1),
   exportedAt: time,
   gatherings: z.array(gatheringSchema),
   activities: z.array(activitySchema),
 });
+export const backupSchema = z
+  .discriminatedUnion("version", [
+    legacyBackupSchema,
+    legacyBackupSchema.extend({
+      version: z.literal(2),
+      playerTickets: z.array(playerTicketSchema),
+    }),
+  ])
+  .transform((b) => ({
+    ...b,
+    version: 2 as const,
+    playerTickets: "playerTickets" in b ? b.playerTickets : [],
+  }));
 
 export type Player = z.infer<typeof playerSchema>;
 export type Prize = z.infer<typeof prizeSchema>;
@@ -251,12 +286,23 @@ export function validateGathering(g: Gathering) {
         p.winners.map((w) => w.playerId),
         "A winner is listed twice.",
       );
-      for (const w of p.winners)
+      for (const w of p.winners) {
         ensure(
           playerIds.has(w.playerId) &&
             w.tickets <= (r.tickets[w.playerId] || 0),
           "Winning tickets cannot exceed tickets bought.",
         );
+        if (w.verification) {
+          ensure(
+            w.tickets === 1 && r.digital,
+            "A verified claim must have one ticket and a round key.",
+          );
+          ensure(
+            w.verification.rule === inferredRule(p),
+            "The verified claim does not match this prize rule.",
+          );
+        }
+      }
       if (r.status === "completed")
         ensure(
           p.winners.length > 0,
@@ -396,13 +442,48 @@ export function newRound(g: Gathering): Round {
     called: [],
     createdAt: Date.now(),
     prizes: previous
-      ? previous.prizes.map((p) => ({ ...p, id: uid(), winners: [] }))
+      ? previous.prizes.map((p) => ({
+          ...p,
+          verificationRule: inferredRule(p),
+          id: uid(),
+          winners: [],
+        }))
       : [
-          { id: uid(), name: "First row", value: 1500, winners: [] },
-          { id: uid(), name: "Second row", value: 1500, winners: [] },
-          { id: uid(), name: "Third row", value: 1500, winners: [] },
-          { id: uid(), name: "Early five", value: 1500, winners: [] },
-          { id: uid(), name: "Full house", value: 4000, winners: [] },
+          {
+            id: uid(),
+            name: "First row",
+            verificationRule: "row1",
+            value: 1500,
+            winners: [],
+          },
+          {
+            id: uid(),
+            name: "Second row",
+            verificationRule: "row2",
+            value: 1500,
+            winners: [],
+          },
+          {
+            id: uid(),
+            name: "Third row",
+            verificationRule: "row3",
+            value: 1500,
+            winners: [],
+          },
+          {
+            id: uid(),
+            name: "Early five",
+            verificationRule: "earlyFive",
+            value: 1500,
+            winners: [],
+          },
+          {
+            id: uid(),
+            name: "Full house",
+            verificationRule: "fullHouse",
+            value: 4000,
+            winners: [],
+          },
         ],
   };
 }
@@ -417,11 +498,148 @@ export function validateBackup(raw: unknown): Backup {
     "Duplicate activities in backup.",
   );
   b.gatherings.forEach(validateGathering);
+  unique(
+    b.playerTickets.map((t) => t.roundId),
+    "Duplicate player tickets in backup.",
+  );
+  for (const ticket of b.playerTickets) {
+    const hostRound = b.gatherings
+      .flatMap((g) => g.rounds)
+      .find((r) => r.id === ticket.roundId);
+    ensure(
+      !hostRound?.digital || hostRound.digital.key === ticket.payload.key,
+      "Player ticket has a different key from the host round.",
+    );
+  }
   for (const a of b.activities) {
     const g = b.gatherings.find((g) => g.id === a.gatheringId);
     ensure(
       g && (!a.roundId || g.rounds.some((r) => r.id === a.roundId)),
       "Backup contains an activity without a matching gathering or round.",
+    );
+    if (a.verification) {
+      const round = g?.rounds.find((r) => r.id === a.roundId);
+      ensure(
+        round?.digital &&
+          round.prizes.some((p) => p.id === a.prizeId) &&
+          g?.players.some((p) => p.id === a.playerId),
+        "Verification activity has no matching prize or player.",
+      );
+    }
+  }
+  return b;
+}
+
+export class ClaimVerificationError extends Error {
+  constructor(public result: VerificationResult) {
+    super(
+      result.rule === "earlyFive"
+        ? `Claim not valid yet. ${result.needed} more ticket number${result.needed === 1 ? "" : "s"} must be called.`
+        : `Claim not valid yet. Still waiting for: ${result.missing.join(", ")}.`,
+    );
+  }
+}
+export async function applyVerifiedClaim(
+  g: Gathering,
+  roundId: string,
+  prizeId: string,
+  playerId: string,
+  ticketId: string,
+) {
+  const r = g.rounds.find((r) => r.id === roundId),
+    p = r?.prizes.find((p) => p.id === prizeId);
+  ensure(
+    r && p && r.status === "playing",
+    "Verify claims in the round currently being played.",
+  );
+  ensure(r.digital, "Open the round QR once before verifying digital tickets.");
+  ensure(
+    r.caller && r.called.length,
+    "There is no call history. Record the award manually.",
+  );
+  ensure(
+    (r.tickets[playerId] || 0) >= 1,
+    "This player needs a logged ticket purchase.",
+  );
+  const rule = inferredRule(p);
+  ensure(rule !== "manual", "This custom prize uses manual awards.");
+  const result = await verifyTicket(r.digital.key, ticketId, rule, r.called);
+  if (!result.valid) throw new ClaimVerificationError(result);
+  const existing = p.winners.find((w) => w.playerId === playerId);
+  if (existing?.verification?.ticketId === ticketId)
+    return { result, alreadyAwarded: true, sharedCode: false };
+  ensure(
+    !existing,
+    "This player already has an award for this prize. Correct that award before replacing it.",
+  );
+  const sharedCode = p.winners.some(
+    (w) => w.verification?.ticketId === ticketId,
+  );
+  p.winners.push({
+    playerId,
+    tickets: 1,
+    verification: {
+      ticketId,
+      algorithm: 1,
+      rule,
+      called: [...r.called],
+      verifiedAt: Date.now(),
+    },
+  });
+  return { result, alreadyAwarded: false, sharedCode };
+}
+export async function validateDigitalClaims(g: Gathering) {
+  for (const r of g.rounds)
+    for (const p of r.prizes)
+      for (const w of p.winners)
+        if (w.verification) {
+          const proof = w.verification;
+          ensure(r.digital, "A verified claim needs a round key.");
+          const grid = await generateTicket(
+            r.digital.key,
+            proof.ticketId,
+            proof.algorithm,
+          );
+          ensure(
+            checkTicket(grid, proof.rule, proof.called).valid,
+            "The saved verification evidence is invalid.",
+          );
+          ensure(
+            checkTicket(grid, proof.rule, r.called).valid,
+            "This would invalidate a verified claim. Correct or remove its award first.",
+          );
+        }
+}
+export async function validateBackupContents(raw: unknown): Promise<Backup> {
+  const b = validateBackup(raw);
+  for (const g of b.gatherings) await validateDigitalClaims(g);
+  for (const a of b.activities)
+    if (a.verification) {
+      const r = b.gatherings
+        .find((g) => g.id === a.gatheringId)!
+        .rounds.find((r) => r.id === a.roundId)!;
+      const proof = a.verification;
+      ensure(
+        (
+          await verifyTicket(
+            r.digital!.key,
+            proof.ticketId,
+            proof.rule,
+            proof.called,
+          )
+        ).valid,
+        "The historical verification evidence is invalid.",
+      );
+    }
+  for (const t of b.playerTickets) {
+    const grid = await generateTicket(
+      t.payload.key,
+      t.ticketId,
+      t.payload.algorithm,
+    );
+    ensure(
+      t.marks.every((n) => grid.flat().includes(n)),
+      "Saved marks do not belong to this ticket.",
     );
   }
   return b;

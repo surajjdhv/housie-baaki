@@ -3323,3 +3323,396 @@ main > * {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+/* Offline tickets use the same phone-first shell as the host's game. */
+.join-shortcut {
+  margin-top: 12px;
+  justify-content: flex-start;
+}
+.join-shortcut svg:last-child {
+  margin-left: auto;
+}
+.prize-setup-item {
+  padding: 0 0 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.prize-setup-item:last-child {
+  border-bottom: 0;
+  margin-bottom: 0;
+}
+.prize-rule-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.prize-rule-label select {
+  max-width: 205px;
+  min-height: 44px;
+  font-size: 14px;
+}
+.award-mode {
+  display: flex;
+  margin-bottom: 22px;
+}
+.award-mode button {
+  flex: 1;
+  min-height: 44px;
+  font-size: 12px;
+  padding: 10px 7px;
+}
+.round-qr {
+  display: block;
+  width: min(100%, 320px);
+  height: auto;
+  aspect-ratio: 1;
+  margin: 0 auto 18px;
+  border-radius: 16px;
+  background: white;
+}
+.qr-instructions {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 20px;
+  line-height: 1.8;
+}
+textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #d9dfd2;
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 12px;
+  padding: 13px;
+  font: inherit;
+  font-size: 16px;
+  margin-top: 8px;
+  resize: vertical;
+  overflow-wrap: anywhere;
+}
+textarea:focus-visible {
+  outline: 2px solid #577d69;
+  outline-offset: 2px;
+}
+.round-link-label {
+  margin-bottom: 16px;
+}
+.round-link-label textarea {
+  font-size: 12px;
+  line-height: 1.7;
+}
+.wallet-scan {
+  margin: 0 0 20px;
+}
+.wallet-scan svg:last-child {
+  margin-left: auto;
+}
+.ticket-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 12px;
+  color: var(--green);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  margin: -10px 0 12px;
+}
+.wallet-list {
+  display: grid;
+  gap: 12px;
+}
+.wallet-ticket {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 16px;
+}
+.wallet-ticket > div {
+  flex: 1;
+  min-width: 0;
+}
+.wallet-ticket strong {
+  display: block;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.wallet-ticket small {
+  margin-top: 7px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.wallet-ticket > span:not(.stat-icon) {
+  font-family: "Manrope", sans-serif;
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: 1px;
+}
+.wallet-ticket > svg {
+  color: var(--green);
+  width: 17px;
+}
+.player-ticket-panel {
+  padding: 25px 12px 18px;
+  margin-bottom: 18px;
+  overflow: visible;
+}
+.player-ticket-heading {
+  text-align: center;
+  padding: 0 10px;
+}
+.player-ticket-heading p {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 17px 0 5px;
+  overflow-wrap: anywhere;
+}
+.player-ticket-heading h2 {
+  font-size: 23px;
+}
+.ticket-code {
+  text-align: center;
+  margin: 24px 0 26px;
+}
+.ticket-code > span {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.ticket-code strong {
+  display: block;
+  font-family: "Manrope", sans-serif;
+  font-size: 52px;
+  line-height: 1.4;
+  letter-spacing: 8px;
+  font-weight: 800;
+  padding-left: 8px;
+  color: #3d5e32;
+}
+.ticket-code small {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.8;
+  padding: 0 10px;
+}
+.digital-ticket-grid {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 3px;
+  padding: 7px;
+  border: 1px solid #dfe3d1;
+  background: #eeeede;
+  border-radius: 13px;
+}
+.digital-ticket-grid > button,
+.digital-ticket-grid > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  min-width: 0;
+  border: 1px solid #e2e5d6;
+  background: #fffef6;
+  border-radius: 6px;
+  color: #384e33;
+  font-size: 17px;
+  padding: 0;
+  font-weight: 600;
+}
+.digital-ticket-grid > .ticket-blank {
+  background: repeating-linear-gradient(
+    135deg,
+    #e9eadb,
+    #e9eadb 3px,
+    #eef0e3 3px,
+    #eef0e3 6px
+  );
+  border-color: #e1e5d4;
+}
+.digital-ticket-grid > button.marked {
+  background: #28594c;
+  border-color: #28594c;
+  color: #fffdf3;
+}
+.digital-ticket-grid > button:disabled {
+  opacity: 0.8;
+}
+.digital-ticket-grid > .called-match {
+  background: #dcebcf;
+  color: #375d28;
+  border-color: #c6dbb5;
+}
+.digital-ticket-grid > .missing-number {
+  background: #fae8dc;
+  color: #963c25;
+  border-color: #e9c6af;
+}
+.ticket-mark-count {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: #49663a;
+  margin: 19px 5px 0;
+}
+.ticket-mark-count > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+}
+.ticket-player-hint {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.8;
+  margin: 20px 7px 0;
+  border-top: 1px solid var(--line);
+  padding-top: 17px;
+}
+.scan-panel {
+  padding: 25px 20px;
+}
+.scan-intro {
+  text-align: center;
+}
+.scan-intro > .stat-icon {
+  width: 52px;
+  height: 54px;
+  border-radius: 16px;
+  margin-bottom: 17px;
+}
+.scan-intro h2 {
+  font-size: 23px;
+}
+.scan-intro p {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--muted);
+  margin: 11px 0 23px;
+}
+.scan-panel > .button {
+  margin-bottom: 12px;
+}
+.camera-preview {
+  display: none;
+  position: relative;
+  margin-bottom: 18px;
+  border-radius: 15px;
+  background: #263b36;
+  overflow: hidden;
+}
+.camera-preview.active {
+  display: block;
+}
+.camera-preview video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4/3;
+  object-fit: cover;
+}
+.camera-preview > p {
+  position: absolute;
+  bottom: 15px;
+  left: 15px;
+  color: #fffdf3;
+  font-size: 13px;
+}
+.scan-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 17px 0 20px;
+}
+.scan-divider:before,
+.scan-divider:after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--line);
+}
+.scan-panel form > .button {
+  margin-top: 15px;
+}
+.digital-claim-panel label {
+  margin-bottom: 20px;
+}
+.digital-claim-panel select {
+  display: block;
+  width: 100%;
+  font-size: 16px;
+  margin-top: 8px;
+}
+.digital-claim-panel input {
+  letter-spacing: 6px;
+  font-size: 24px;
+  font-weight: 650;
+  text-align: center;
+}
+.digital-claim-panel input::placeholder {
+  font-size: 24px;
+  letter-spacing: 6px;
+  font-weight: 400;
+}
+.verification-rule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #49663a;
+  margin-bottom: 20px;
+}
+.claim-result {
+  margin: 18px 0;
+}
+.claim-result .digital-ticket-grid > span {
+  min-height: 40px;
+  font-size: 14px;
+}
+@media (min-width: 600px) {
+  .player-ticket-panel {
+    padding: 30px 24px 24px;
+  }
+  .digital-ticket-grid {
+    gap: 5px;
+    padding: 10px;
+  }
+  .digital-ticket-grid > button,
+  .digital-ticket-grid > span {
+    min-height: 62px;
+    font-size: 23px;
+  }
+  .ticket-code strong {
+    font-size: 62px;
+  }
+  .scan-panel,
+  .player-ticket-panel,
+  .wallet-list {
+    max-width: 700px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .prize-rule-label select {
+    max-width: 270px;
+  }
+}
+.activity-verification {
+  margin-top: 9px;
+  color: #49663a;
+  font-size: 12px;
+}
+.activity-verification summary {
+  cursor: pointer;
+  min-height: 36px;
+  align-content: center;
+}
+.activity-verification p {
+  margin-top: 6px;
+  font-size: 12px;
+}
