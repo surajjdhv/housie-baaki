@@ -225,6 +225,26 @@ test("QR generation, image decoding, tickets, claims, ties and undo all work off
   await second.reload();
   await expect(second.locator(".ticket-code strong")).toHaveText(secondCode!);
 
+  await page
+    .getByRole("button", { name: "Number caller", exact: true })
+    .click();
+  await page.getByRole("button", { name: /Manual marking/ }).click();
+  for (const number of all.slice(0, 3))
+    await page
+      .getByRole("button", {
+        name: `Number ${number}, not called`,
+        exact: true,
+      })
+      .click();
+  const offTicketNumber = Array.from({ length: 90 }, (_, i) => i + 1).find(
+    (number) => !all.includes(number),
+  )!;
+  await page
+    .getByRole("button", {
+      name: `Number ${offTicketNumber}, not called`,
+      exact: true,
+    })
+    .click();
   await openClaim(page, code);
   await expect(
     page.getByRole("button", { name: "Confirm & award", exact: true }),
@@ -244,6 +264,28 @@ test("QR generation, image decoding, tickets, claims, ties and undo all work off
       { exact: true },
     ),
   ).toBeVisible();
+  await expect(page.locator(".host-ticket-preview .marked")).toHaveText(
+    all.slice(0, 3).map(String),
+  );
+  await expect(
+    page.getByRole("img", { name: `Number ${all[0]}, called`, exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("img", {
+      name: `Number ${all[3]}, not called`,
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.locator(".comparison-called")).toContainText(
+    "3 of 15 called",
+  );
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
   await page.screenshot({
     path: testInfo.outputPath("host-ticket-preview.png"),
   });
@@ -280,16 +322,28 @@ test("QR generation, image decoding, tickets, claims, ties and undo all work off
   await page
     .getByRole("button", { name: "Number caller", exact: true })
     .click();
-  await page.getByRole("button", { name: /Manual marking/ }).click();
+
   await page
-    .getByRole("button", { name: `Number ${all[0]}, not called`, exact: true })
+    .getByRole("button", { name: `Number ${all[3]}, not called`, exact: true })
     .click();
   await page.getByRole("button", { name: "Undo last", exact: true }).click();
   await expect(
-    page.getByLabel("No numbers called", { exact: true }),
+    page.getByLabel(`Latest number ${offTicketNumber}`, { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Prizes", exact: true }).click();
   await expect(page.locator(".winner-chips>span")).toHaveCount(2);
+  await openClaim(page, code);
+  await page.getByRole("button", { name: "Show ticket", exact: true }).click();
+  await expect(page.locator(".host-ticket-preview .marked")).toHaveText(
+    all.slice(0, 3).map(String),
+  );
+  await expect(
+    page.getByRole("img", {
+      name: `Number ${all[3]}, not called`,
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
   await page
     .getByRole("button", { name: "Edit winners", exact: true })
     .first()
@@ -473,6 +527,10 @@ test("custom prizes work with caller disabled, and changing inputs clears the pr
   await page.getByRole("button", { name: "Show ticket", exact: true }).click();
   await expect(page.locator(".claim-result .ticket-code strong")).toHaveText(
     "0000",
+  );
+  await expect(page.locator(".host-ticket-preview .marked")).toHaveCount(0);
+  await expect(page.locator(".comparison-called")).toHaveText(
+    "No numbers have been called in the app.",
   );
   await page.getByLabel("Four-digit ticket ID", { exact: true }).fill("0042");
   await expect(

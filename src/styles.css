@@ -3599,11 +3599,11 @@ textarea:focus-visible {
 .digital-ticket-grid > .ticket-blank {
   background: #f0f2e9;
 }
-.digital-ticket-grid > button.marked {
+.digital-ticket-grid > .marked {
   background: var(--mint);
   color: var(--green);
 }
-.digital-ticket-grid > button.marked::after {
+.digital-ticket-grid > .marked::after {
   content: "";
   position: absolute;
   width: min(79%, 1.25em);
@@ -3785,6 +3785,23 @@ textarea:focus-visible {
 }
 .host-ticket-preview .ticket-code strong {
   font-size: 32px;
+}
+.comparison-called {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 12px 2px 2px;
+  color: var(--green);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.comparison-called-symbol {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--green);
+  border-radius: 50%;
+  background: var(--mint);
 }
 @media (min-width: 600px) {
   .scan-panel,

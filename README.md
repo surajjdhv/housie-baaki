@@ -47,6 +47,8 @@ Winner corrections recalculate dues and retain recorded payments. Mistaken payme
 4. Each browser profile receives one saved ticket per round, with a four-digit ID including leading zeros. Scan the same round again to restore it; there is no reroll button. The ticket opens in a full-screen paper-style view, best held sideways. Tap numbers to stamp or unstamp them. Marks survive refreshes and rotation. Use **Back to my tickets** to leave.
 5. The host still records names and purchases before play. Joining does not update the host, and phones do not synchronize calls or marks. The host checks every claim manually and records one winning ticket after confirming the preview. This works for custom prizes and without the app’s number caller.
 
+The host’s comparison preview circles ticket numbers present in the saved call history and shows how many of the 15 have been called. This is a visual aid; claim approval stays manual. With no saved calls, the ticket remains unmarked.
+
 Ticket lookup does not change winnings. **Confirm & award** atomically records the winning ticket ID and a manual-confirmation activity. A repeated claim does not pay twice. Different players with the same ID have identical tickets and may share a prize; the UI explains the collision. An already-recorded award must be corrected before being replaced.
 
 Four-digit IDs reconstruct a ticket using the selected round’s key. They do **not** prove which QR was scanned, ownership, purchase, or issuance time. Compare the actual numbers with the player’s screen. Codes can collide, and clearing storage or using another browser can bypass the one-ticket-per-profile limit. This is a trust-based game between people at the table.

@@ -64,7 +64,12 @@ export function TicketGridView({
             <span>{number}</span>
           </button>
         ) : (
-          <span key={index} className="ticket-number">
+          <span
+            key={index}
+            className={`ticket-number${marks.includes(number) ? " marked" : ""}`}
+            role="img"
+            aria-label={`Number ${number}, ${marks.includes(number) ? "called" : "not called"}`}
+          >
             {number}
           </span>
         ),
@@ -657,6 +662,12 @@ export function DigitalClaimPanel({
   } | null>(null);
   const [error, setError] = useState("");
   const request = useRef(0);
+  const calledOnTicket = preview
+    ? preview.grid
+        .flat()
+        .filter((number) => number !== null && round.called.includes(number))
+        .length
+    : 0;
   const duplicate = round.prizes
     .flatMap((p) => p.winners)
     .find(
@@ -797,7 +808,16 @@ export function DigitalClaimPanel({
                     <strong>{preview.ticketId}</strong>
                   </div>
                 </header>
-                <TicketGridView grid={preview.grid} />
+                <TicketGridView grid={preview.grid} marks={round.called} />
+                <div className="comparison-called" role="status">
+                  <span
+                    className="comparison-called-symbol"
+                    aria-hidden="true"
+                  />
+                  {round.called.length
+                    ? `${calledOnTicket} of 15 called · Circled numbers were called by the host.`
+                    : "No numbers have been called in the app."}
+                </div>
               </div>
               <p className="claim-manual-hint">
                 Compare this ticket with the player’s screen and check their
@@ -805,7 +825,7 @@ export function DigitalClaimPanel({
               </p>
               <p className="form-hint">
                 Four digits show this round’s ticket. They do not prove which QR
-                was scanned. No winning numbers are checked automatically.
+                was scanned. Winning claims are approved manually.
               </p>
               <button
                 type="button"
