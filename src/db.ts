@@ -6,8 +6,7 @@ import {
   uid,
   validateGathering,
   validateBackupContents,
-  validateDigitalClaims,
-  applyVerifiedClaim,
+  applyDigitalAward,
 } from "./domain";
 import {
   roundPayloadSchema,
@@ -78,7 +77,6 @@ export async function changeGathering(
         throw new Error("A shared round key cannot change.");
     g.updatedAt = Math.max(Date.now(), g.updatedAt + 1);
     validateGathering(g);
-    await Dexie.waitFor(validateDigitalClaims(g));
     await db.gatherings.put(g);
     await db.activities.add({
       id: uid(),
@@ -171,7 +169,7 @@ export async function toggleTicketMark(roundId: string, number: number) {
     }),
   );
 }
-export async function awardDigitalClaim(
+export async function awardDigitalTicket(
   gatheringId: string,
   roundId: string,
   prizeId: string,
@@ -181,12 +179,9 @@ export async function awardDigitalClaim(
   return db.transaction("rw", db.gatherings, db.activities, async () => {
     const g = await db.gatherings.get(gatheringId);
     if (!g) throw new Error("This gathering no longer exists.");
-    const result = await Dexie.waitFor(
-      applyVerifiedClaim(g, roundId, prizeId, playerId, ticketId),
-    );
+    const result = applyDigitalAward(g, roundId, prizeId, playerId, ticketId);
     if (result.alreadyAwarded) return result;
     validateGathering(g);
-    await Dexie.waitFor(validateDigitalClaims(g));
     g.updatedAt = Math.max(Date.now(), g.updatedAt + 1);
     const round = g.rounds.find((r) => r.id === roundId)!,
       prize = round.prizes.find((p) => p.id === prizeId)!;
@@ -197,12 +192,10 @@ export async function awardDigitalClaim(
       roundId,
       kind: "award",
       createdAt: g.updatedAt,
-      message: `Verified ${prize.name} for ${g.players.find((p) => p.id === playerId)!.name}, ticket ${ticketId}, in round ${round.number} after ${round.called.length} calls.${result.sharedCode ? " Same ID as another winner: tickets are identical and share the prize." : ""}`,
+      message: `Host manually checked and awarded ${prize.name} for ${g.players.find((p) => p.id === playerId)!.name}, ticket ${ticketId}, in round ${round.number}.${result.sharedCode ? " Same ID as another winner: tickets are identical and share the prize." : ""}`,
       prizeId,
       playerId,
-      verification: structuredClone(
-        prize.winners.find((w) => w.playerId === playerId)!.verification!,
-      ),
+      ticketId,
     });
     return result;
   });

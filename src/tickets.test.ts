@@ -1,23 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  applyVerifiedClaim,
-  ClaimVerificationError,
+  applyDigitalAward,
+  prizeShares,
+  balances,
   validateBackup,
   validateBackupContents,
-  validateDigitalClaims,
   validateGathering,
 } from "./domain";
 import {
-  checkTicket,
   createRoundKey,
   encodeRoundLink,
   generateTicket,
-  inferredRule,
   parseRoundLink,
   randomTicketId,
   ticketNumbers,
   type RoundPayload,
-  type VerificationRule,
 } from "./tickets";
 import { fixture } from "./test-fixtures";
 
@@ -40,7 +37,8 @@ function claimFixture() {
   const r = g.rounds[0];
   r.status = "playing";
   r.digital = { algorithm: 1, key };
-  r.called = [6, 12, 54, 67, 76];
+  r.caller = false;
+  r.called = [];
   r.prizes.forEach((p) => {
     p.winners = [];
   });
@@ -138,100 +136,61 @@ describe("versioned deterministic Housie tickets", () => {
     expect(() => parseRoundLink(newer)).toThrow();
   });
 });
-describe("prize rule checks", () => {
-  it.each<[VerificationRule, number[]]>([
-    ["row1", [6, 12, 54, 67, 76]],
-    ["row2", [7, 24, 33, 58, 68]],
-    ["row3", [8, 14, 35, 41, 85]],
-    ["corners", [6, 76, 8, 85]],
-    ["earlyFive", [6, 7, 8, 12, 14]],
-    ["fullHouse", expected.flat().filter((n): n is number => n !== null)],
-  ])("passes %s only when its requirements are met", (rule, called) => {
-    expect(checkTicket(expected, rule, called).valid).toBe(true);
-    expect(checkTicket(expected, rule, called.slice(1)).valid).toBe(false);
-  });
-  it("counts distinct early-five matches without requiring a row or trusting taps", () => {
-    const called = [6, 7, 8, 12, 14];
-    expect(checkTicket(expected, "earlyFive", called).valid).toBe(true);
-    for (const rule of ["row1", "row2", "row3"] as const)
-      expect(checkTicket(expected, rule, called).valid).toBe(false);
-    expect(checkTicket(expected, "earlyFive", [6, 6, 7, 8, 12]).needed).toBe(1);
-    expect(
-      checkTicket(
-        expected,
-        "manual",
-        Array.from({ length: 90 }, (_, i) => i + 1),
-      ).valid,
-    ).toBe(false);
-  });
-  it("keeps explicit rules stable across renames and treats unknown labels manually", () => {
-    expect(inferredRule({ name: "First row" })).toBe("row1");
-    expect(inferredRule({ name: "Early 5" })).toBe("earlyFive");
-    expect(inferredRule({ name: "Edges" })).toBe("manual");
-    expect(
-      inferredRule({ name: "Something else", verificationRule: "corners" }),
-    ).toBe("corners");
-    expect(
-      inferredRule({ name: "Full house", verificationRule: "manual" }),
-    ).toBe("manual");
-  });
-});
-describe("verified award integrity", () => {
-  it("applies one winning ticket, captures evidence, and is idempotent", async () => {
+describe("host-confirmed digital awards", () => {
+  it("records one ticket for a custom prize without caller history and is idempotent", () => {
     const g = claimFixture();
-    await applyVerifiedClaim(g, "r1", "small", "a", "0000");
+    g.rounds[0].prizes[0].name = "Lucky edges";
+    applyDigitalAward(g, "r1", "small", "a", "0000");
     const snapshot = structuredClone(g);
-    expect(g.rounds[0].prizes[0].winners[0]).toMatchObject({
+    expect(g.rounds[0].prizes[0].winners[0]).toEqual({
       playerId: "a",
       tickets: 1,
-      verification: {
-        ticketId: "0000",
-        rule: "row1",
-        called: [6, 12, 54, 67, 76],
-      },
+      ticketId: "0000",
     });
     expect(
-      (await applyVerifiedClaim(g, "r1", "small", "a", "0000")).alreadyAwarded,
+      applyDigitalAward(g, "r1", "small", "a", "0000").alreadyAwarded,
     ).toBe(true);
     expect(g).toEqual(snapshot);
     validateGathering(g);
-    await validateDigitalClaims(g);
   });
-  it("leaves a failed claim untouched and does not replace an existing award", async () => {
-    const g = claimFixture();
-    g.rounds[0].called.pop();
-    const before = structuredClone(g);
-    await expect(
-      applyVerifiedClaim(g, "r1", "small", "a", "0000"),
-    ).rejects.toBeInstanceOf(ClaimVerificationError);
+  it("rejects invalid IDs and unlogged purchases without changing winners", () => {
+    const g = claimFixture(),
+      before = structuredClone(g);
+    expect(() => applyDigitalAward(g, "r1", "small", "a", "123")).toThrow();
+    expect(() =>
+      applyDigitalAward(g, "r1", "small", "unknown", "0000"),
+    ).toThrow("logged ticket");
     expect(g).toEqual(before);
-    g.rounds[0].called.push(76);
+    g.rounds[0].digital = undefined;
+    expect(() => applyDigitalAward(g, "r1", "small", "a", "0000")).toThrow(
+      "round QR",
+    );
+  });
+  it("never overwrites an existing award or a different ticket ID", () => {
+    const g = claimFixture();
     g.rounds[0].prizes[0].winners.push({ playerId: "a", tickets: 2 });
-    await expect(
-      applyVerifiedClaim(g, "r1", "small", "a", "0000"),
-    ).rejects.toThrow("already has an award");
-    expect(g.rounds[0].prizes[0].winners[0].tickets).toBe(2);
+    expect(() => applyDigitalAward(g, "r1", "small", "a", "0000")).toThrow(
+      "already has an award",
+    );
+    g.rounds[0].prizes[0].winners = [];
+    applyDigitalAward(g, "r1", "small", "a", "0000");
+    expect(() => applyDigitalAward(g, "r1", "small", "a", "0001")).toThrow(
+      "already has an award",
+    );
+    expect(g.rounds[0].prizes[0].winners[0].ticketId).toBe("0000");
   });
-  it("allows identical-code ties for different people and rejects unlogged purchases", async () => {
-    const g = claimFixture();
-    await applyVerifiedClaim(g, "r1", "small", "a", "0000");
-    expect(
-      (await applyVerifiedClaim(g, "r1", "small", "b", "0000")).sharedCode,
-    ).toBe(true);
-    expect(g.rounds[0].prizes[0].winners).toHaveLength(2);
-    g.rounds[0].tickets.c = 0;
-    await expect(
-      applyVerifiedClaim(g, "r1", "small", "c", "0000"),
-    ).rejects.toThrow("logged ticket");
-  });
-  it("detects invalidated call history and forged verification evidence", async () => {
-    const g = claimFixture();
-    await applyVerifiedClaim(g, "r1", "small", "a", "0000");
-    g.rounds[0].called.pop();
-    await expect(validateDigitalClaims(g)).rejects.toThrow("invalidate");
-    g.rounds[0].called.push(76);
-    g.rounds[0].prizes[0].winners[0].verification!.called = [6];
-    await expect(validateDigitalClaims(g)).rejects.toThrow("evidence");
+  it("splits identical-ID shared wins and preserves zero-sum completed balances", () => {
+    const g = claimFixture(),
+      r = g.rounds[0];
+    applyDigitalAward(g, "r1", "small", "a", "0000");
+    expect(applyDigitalAward(g, "r1", "small", "b", "0000").sharedCode).toBe(
+      true,
+    );
+    expect(prizeShares(r, r.prizes[0])).toEqual({ a: 2500, b: 2500 });
+    applyDigitalAward(g, "r1", "big", "c", "9876");
+    r.status = "completed";
+    validateGathering(g);
+    expect(Object.values(balances(g)).reduce((a, b) => a + b, 0)).toBe(0);
   });
   it("normalizes legacy backups and validates restored ticket marks before replacement", async () => {
     const old = {

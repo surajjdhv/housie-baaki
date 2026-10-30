@@ -72,12 +72,7 @@ import {
   RoundQrModal,
   DigitalClaimPanel,
 } from "./DigitalTickets";
-import {
-  createRoundKey,
-  inferredRule,
-  RULE_LABELS,
-  type VerificationRule,
-} from "./tickets";
+import { createRoundKey, RULE_LABELS } from "./tickets";
 import { useEditorLock } from "./useEditorLock";
 
 const date = (n: number) =>
@@ -311,9 +306,10 @@ export default function App() {
     }
   };
   const page = parts[0] || "home";
+  const ticketScreen = page === "tickets" && !!parts[1] && parts[1] !== "scan";
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${ticketScreen ? "ticket-screen" : ""}`}>
       <div className="workspace">
         <header className="topbar">
           <a
@@ -381,7 +377,7 @@ export default function App() {
             </button>
           </div>
         </header>
-        {needRefresh && !activeRound && (
+        {needRefresh && !activeRound && !ticketScreen && (
           <div className="notice update-notice">
             A fresh version is ready. Your games stay saved.
             <button onClick={() => void updateServiceWorker(true)}>
@@ -431,7 +427,7 @@ export default function App() {
             />
           )}
         </main>
-        {!current && (
+        {!current && !ticketScreen && (
           <nav
             className="app-navigation global-navigation"
             aria-label="Main navigation"
@@ -490,7 +486,7 @@ export default function App() {
               [
                 "03",
                 "Celebrate the wins",
-                "Call numbers if you like, check claims, and record winners. Shared wins split by winning tickets.",
+                "Check claims yourself, preview digital tickets by ID, and record winners. Shared wins split by winning tickets.",
               ],
               [
                 "04",
@@ -1598,14 +1594,10 @@ function RoundView({
                   <div className="winner-chips">
                     {p.winners.map((w) => (
                       <span key={w.playerId}>
-                        {w.verification ? (
-                          <ShieldCheck size={13} />
-                        ) : (
-                          <Check size={13} />
-                        )}
+                        <Check size={13} />
                         {g.players.find((x) => x.id === w.playerId)?.name}
-                        {w.verification &&
-                          ` · #${w.verification.ticketId} verified`}
+                        {(w.ticketId ?? w.verification?.ticketId) &&
+                          ` · #${w.ticketId ?? w.verification?.ticketId}`}
                         <strong>
                           {rupees(prizeShares(round, p)[w.playerId])}
                         </strong>
@@ -2064,9 +2056,6 @@ function RoundSetup({
                         maxLength={80}
                         onChange={(e) =>
                           update((d) => {
-                            d.prizes[i].verificationRule = inferredRule(
-                              d.prizes[i],
-                            );
                             d.prizes[i].name = e.target.value;
                           })
                         }
@@ -2109,25 +2098,6 @@ function RoundSetup({
                         <Trash2 size={16} />
                       </button>
                     </div>
-                    <label className="prize-rule-label">
-                      Verify as
-                      <select
-                        aria-label={`Verification rule for prize ${i + 1}`}
-                        value={inferredRule(p)}
-                        onChange={(e) =>
-                          update((d) => {
-                            d.prizes[i].verificationRule = e.target
-                              .value as VerificationRule;
-                          })
-                        }
-                      >
-                        {Object.entries(RULE_LABELS).map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
                   </div>
                 ))}
               </div>
@@ -2149,7 +2119,6 @@ function RoundSetup({
                           d.prizes.push({
                             id: uid(),
                             name: n,
-                            verificationRule: inferredRule({ name: n }),
                             value: 0,
                             winners: [],
                           });
@@ -2168,7 +2137,6 @@ function RoundSetup({
                       d.prizes.push({
                         id: uid(),
                         name: "",
-                        verificationRule: "manual",
                         value: 0,
                         winners: [],
                       });
@@ -2385,7 +2353,7 @@ function AwardModal({
   close: () => void;
   act: Act;
 }) {
-  const [mode, setMode] = useState<"manual" | "verify">("manual");
+  const [mode, setMode] = useState<"manual" | "digital">("manual");
   const [counts, setCounts] = useState<Record<string, number>>(
     Object.fromEntries(prize.winners.map((w) => [w.playerId, w.tickets])),
   );
@@ -2396,6 +2364,9 @@ function AwardModal({
       return {
         playerId,
         tickets,
+        ...(previous?.ticketId && previous.tickets === tickets
+          ? { ticketId: previous.ticketId }
+          : {}),
         ...(previous?.verification && previous.tickets === tickets
           ? { verification: previous.verification }
           : {}),
@@ -2426,7 +2397,7 @@ function AwardModal({
             .prizes.find((p) => p.id === prize.id)!.winners = winners;
         },
         "award",
-        `${round.status === "completed" ? "Corrected" : old ? "Updated" : "Awarded"} ${prize.name} in round ${round.number}: ${result || "cleared winners"}${old ? `. Previously: ${old}` : ""}. Manual award/correction; any unchanged verification evidence is retained.`,
+        `${round.status === "completed" ? "Corrected" : old ? "Updated" : "Awarded"} ${prize.name} in round ${round.number}: ${result || "cleared winners"}${old ? `. Previously: ${old}` : ""}. Host manually checked the claim.`,
         round.id,
       )
     )
@@ -2448,13 +2419,13 @@ function AwardModal({
         </button>
         <button
           type="button"
-          aria-pressed={mode === "verify"}
-          onClick={() => setMode("verify")}
+          aria-pressed={mode === "digital"}
+          onClick={() => setMode("digital")}
         >
-          Verify digital ticket
+          Check digital ticket
         </button>
       </div>
-      {mode === "verify" ? (
+      {mode === "digital" ? (
         <DigitalClaimPanel
           g={g}
           round={round}
@@ -3110,10 +3081,12 @@ function ActivityView({ g }: { g: Gathering }) {
                 {a.verification && (
                   <details className="activity-verification">
                     <summary>
-                      Verified ticket #{a.verification.ticketId} ·{" "}
+                      Historical automatic check · ticket #
+                      {a.verification.ticketId} ·{" "}
                       {RULE_LABELS[a.verification.rule]}
                     </summary>
                     <p>
+                      Automatically checked before the manual-claim update.
                       Called numbers at award:{" "}
                       {a.verification.called.join(", ")}
                     </p>

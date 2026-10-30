@@ -8,26 +8,19 @@ import {
   Copy,
   ImagePlus,
   QrCode,
-  ShieldCheck,
+  ChevronLeft,
+  RotateCw,
   Ticket,
   X,
 } from "lucide-react";
-import { awardDigitalClaim, db, joinRound, toggleTicketMark } from "./db";
-import {
-  ClaimVerificationError,
-  type Gathering,
-  type Prize,
-  type Round,
-} from "./domain";
+import { awardDigitalTicket, db, joinRound, toggleTicketMark } from "./db";
+import { type Gathering, type Prize, type Round } from "./domain";
 import {
   encodeRoundLink,
   generateTicket,
-  inferredRule,
   parseRoundLink,
-  RULE_LABELS,
   type PlayerTicket,
   type TicketGrid,
-  type VerificationResult,
 } from "./tickets";
 import { Modal, type Act } from "./ui";
 
@@ -41,13 +34,11 @@ export function TicketGridView({
   grid,
   marks = [],
   onToggle,
-  result,
   disabled = false,
 }: {
   grid: TicketGrid;
   marks?: number[];
   onToggle?: (number: number) => void;
-  result?: VerificationResult;
   disabled?: boolean;
 }) {
   return (
@@ -69,19 +60,10 @@ export function TicketGridView({
             disabled={disabled}
             onClick={() => onToggle(number)}
           >
-            {number}
+            <span>{number}</span>
           </button>
         ) : (
-          <span
-            key={index}
-            className={
-              result?.matched.includes(number)
-                ? "called-match"
-                : result?.required.includes(number)
-                  ? "missing-number"
-                  : "ticket-neutral"
-            }
-          >
+          <span key={index} className="ticket-number">
             {number}
           </span>
         ),
@@ -408,46 +390,73 @@ function PlayerTicketView({
       alive = false;
     };
   }, [ticket.payload.key, ticket.ticketId, ticket.payload.algorithm]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") go("/tickets");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   return (
-    <section className="panel player-ticket-panel">
-      <div className="player-ticket-heading">
-        <span className="badge green">Saved on this phone</span>
-        <p>{ticket.payload.name}</p>
-        <h2>Round {ticket.payload.roundNumber}</h2>
-      </div>
-      <div className="ticket-code">
-        <span>YOUR TICKET ID</span>
-        <strong>{ticket.ticketId}</strong>
-        <small>Tell the host these four digits when you claim.</small>
-      </div>
-      {error && (
-        <p className="inline-error" role="alert">
-          {error}
-        </p>
-      )}
-      {grid ? (
-        <TicketGridView
-          grid={grid}
-          marks={ticket.marks}
-          disabled={busy}
-          onToggle={(n) => void act(() => toggleTicketMark(ticket.roundId, n))}
-        />
-      ) : (
-        <p className="form-hint" role="status">
-          Recreating your ticket…
-        </p>
-      )}
-      <div className="ticket-mark-count">
-        <span>
-          <Check size={15} /> {ticket.marks.length} marked
+    <section className="ticket-stage" aria-label="Your digital ticket">
+      <header className="ticket-stage-toolbar">
+        <a href="#/tickets" className="ticket-back">
+          <ChevronLeft size={18} /> Back to my tickets
+        </a>
+        <span className="ticket-saved">
+          <Check size={14} /> Saved on this phone
         </span>
-        <span>{15 - ticket.marks.length} to go</span>
+      </header>
+      <div className="ticket-stage-content">
+        <p className="ticket-rotate-hint">
+          <RotateCw size={16} /> Turn your phone sideways for a bigger ticket.
+        </p>
+        <article
+          className="paper-ticket"
+          aria-label={`Round ${ticket.payload.roundNumber}, ticket ${ticket.ticketId}`}
+        >
+          <header className="paper-ticket-header">
+            <div className="paper-ticket-title">
+              <span className="paper-ticket-brand">HOUSIE BAAKI</span>
+              <h1>{ticket.payload.name}</h1>
+              <p>Round {ticket.payload.roundNumber}</p>
+            </div>
+            <div className="ticket-code">
+              <span>TICKET NO.</span>
+              <strong>{ticket.ticketId}</strong>
+            </div>
+          </header>
+          {error && (
+            <p className="inline-error" role="alert">
+              {error}
+            </p>
+          )}
+          {grid ? (
+            <TicketGridView
+              grid={grid}
+              marks={ticket.marks}
+              disabled={busy}
+              onToggle={(n) =>
+                void act(() => toggleTicketMark(ticket.roundId, n))
+              }
+            />
+          ) : (
+            <p className="form-hint" role="status">
+              Recreating your ticket…
+            </p>
+          )}
+          <footer className="paper-ticket-footer">
+            <span>90 BALL · 15 NUMBERS</span>
+            <span className="ticket-mark-count" role="status">
+              {ticket.marks.length} marked · {15 - ticket.marks.length} to go
+            </span>
+          </footer>
+        </article>
+        <p className="ticket-player-hint">
+          Tap a number to stamp it. Tap again to undo. Your marks are saved on
+          this phone.
+        </p>
       </div>
-      <p className="ticket-player-hint">
-        Listen to the caller and tap a number to mark it. Tap again to undo.
-        Your marks stay on this phone; the host checks against their own call
-        history.
-      </p>
     </section>
   );
 }
@@ -492,6 +501,15 @@ export function TicketWallet({
     });
   }
   const selected = tickets?.find((t) => t.roundId === token);
+  if (selected && !joining && token !== "scan")
+    return (
+      <PlayerTicketView
+        key={selected.roundId}
+        ticket={selected}
+        act={act}
+        busy={busy}
+      />
+    );
   return (
     <>
       <div className="page-heading">
@@ -518,24 +536,6 @@ export function TicketWallet({
         )
       ) : token === "scan" ? (
         <Scanner onJoin={join} busy={busy} />
-      ) : selected ? (
-        <>
-          <a className="ticket-back" href="#/tickets">
-            All my tickets
-          </a>
-          <PlayerTicketView
-            key={selected.roundId}
-            ticket={selected}
-            act={act}
-            busy={busy}
-          />
-          <a
-            className="button secondary full wallet-scan"
-            href="#/tickets/scan"
-          >
-            <QrCode size={18} /> Scan another round QR
-          </a>
-        </>
       ) : token ? (
         <p className="inline-error" role="alert">
           Ticket not found. <a href="#/tickets">Back to my tickets</a>
@@ -606,129 +606,174 @@ export function DigitalClaimPanel({
 }) {
   const [playerId, setPlayerId] = useState("");
   const [ticketId, setTicketId] = useState("");
-  const [result, setResult] = useState<VerificationResult | null>(null);
+  const [preview, setPreview] = useState<{
+    grid: TicketGrid;
+    playerId: string;
+    ticketId: string;
+  } | null>(null);
   const [error, setError] = useState("");
-  const rule = inferredRule(prize);
-  const duplicate = prize.winners.find(
-    (w) => w.verification?.ticketId === ticketId && w.playerId !== playerId,
+  const request = useRef(0);
+  const duplicate = round.prizes
+    .flatMap((p) => p.winners)
+    .find(
+      (w) =>
+        (w.ticketId ?? w.verification?.ticketId) === ticketId &&
+        w.playerId !== playerId,
+    );
+  const sharedPrize = prize.winners.some(
+    (w) =>
+      (w.ticketId ?? w.verification?.ticketId) === ticketId &&
+      w.playerId !== playerId,
   );
-  const unavailable =
-    rule === "manual"
-      ? "This custom prize uses manual awards. Switch to Manual award."
-      : !round.digital
-        ? "Open Show round QR first to create this round’s ticket key."
-        : !round.caller || !round.called.length
-          ? "No called numbers are saved for this round. Use Manual award or start recording calls."
-          : round.status !== "playing"
-            ? "This round has finished. Use the manual correction flow."
-            : "";
-  async function submit(e: React.FormEvent) {
+  const unavailable = !round.digital
+    ? "Open Show round QR first to create this round’s ticket key."
+    : round.status !== "playing"
+      ? "This round has finished. Use the manual correction flow."
+      : "";
+  function clearPreview() {
+    request.current++;
+    setPreview(null);
+    setError("");
+  }
+  async function lookup(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setResult(null);
-    const saved = await act(async () => {
-      try {
-        await awardDigitalClaim(g.id, round.id, prize.id, playerId, ticketId);
-      } catch (e) {
-        if (e instanceof ClaimVerificationError) {
-          setResult(e.result);
-          setError(e.message);
-          return;
-        }
-        throw e;
-      }
-      close();
+    setPreview(null);
+    const token = ++request.current;
+    await act(async () => {
+      const grid = await generateTicket(
+        round.digital!.key,
+        ticketId,
+        round.digital!.algorithm,
+      );
+      if (token === request.current) setPreview({ grid, playerId, ticketId });
     });
-    if (!saved)
-      setError("The claim was not saved. Check the message and try again.");
+  }
+  async function confirm() {
+    if (!preview) return;
+    setError("");
+    if (
+      await act(() =>
+        awardDigitalTicket(
+          g.id,
+          round.id,
+          prize.id,
+          preview.playerId,
+          preview.ticketId,
+        ),
+      )
+    )
+      close();
+    else setError("The award was not saved. Check the message and try again.");
   }
   return (
     <div className="digital-claim-panel">
-      <p className="verification-rule">
-        <ShieldCheck size={17} /> Rule: <strong>{RULE_LABELS[rule]}</strong>
-      </p>
       {unavailable ? (
         <p className="info-box">{unavailable}</p>
       ) : (
-        <form onSubmit={submit}>
-          <label>
-            Winner
-            <select
-              aria-label="Winner"
-              value={playerId}
-              onChange={(e) => {
-                setPlayerId(e.target.value);
-                setError("");
-                setResult(null);
-              }}
-              required
-              disabled={!editable}
+        <>
+          <form onSubmit={lookup}>
+            <label>
+              Winner
+              <select
+                aria-label="Winner"
+                value={playerId}
+                required
+                disabled={!editable}
+                onChange={(e) => {
+                  setPlayerId(e.target.value);
+                  clearPreview();
+                }}
+              >
+                <option value="">Choose a player</option>
+                {g.players
+                  .filter((p) => round.tickets[p.id] > 0)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label>
+              Four-digit ticket ID
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]{4}"
+                minLength={4}
+                maxLength={4}
+                placeholder="0427"
+                value={ticketId}
+                required
+                disabled={!editable}
+                autoComplete="off"
+                onChange={(e) => {
+                  setTicketId(e.target.value.replace(/\D/g, "").slice(0, 4));
+                  clearPreview();
+                }}
+              />
+            </label>
+            {duplicate && (
+              <p className="info-box">
+                This ID is also used by{" "}
+                {g.players.find((p) => p.id === duplicate.playerId)?.name}. The
+                tickets are identical
+                {sharedPrize
+                  ? "; both winners will share this prize."
+                  : ". IDs can coincide."}
+              </p>
+            )}
+            <button
+              className="button secondary full"
+              disabled={!editable || !playerId || !/^\d{4}$/.test(ticketId)}
             >
-              <option value="">Choose a player</option>
-              {g.players
-                .filter((p) => round.tickets[p.id] > 0)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            Four-digit ticket ID
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]{4}"
-              maxLength={4}
-              minLength={4}
-              placeholder="0427"
-              value={ticketId}
-              onChange={(e) => {
-                setTicketId(e.target.value.replace(/\D/g, "").slice(0, 4));
-                setResult(null);
-                setError("");
-              }}
-              required
-              disabled={!editable}
-              autoComplete="off"
-            />
-          </label>
-          {duplicate && (
-            <p className="info-box">
-              This ID is also used by{" "}
-              {g.players.find((p) => p.id === duplicate.playerId)?.name}. The
-              tickets are identical; both winners will share this prize.
-            </p>
-          )}
+              <Ticket size={17} /> Show ticket
+            </button>
+          </form>
           {error && (
             <p className="inline-error" role="alert">
               {error}
             </p>
           )}
-          {result && (
+          {preview && (
             <div className="claim-result">
-              <TicketGridView grid={result.grid} result={result} />
-              <p className="form-hint">
-                Green numbers were called. Orange numbers are still missing for
-                this rule
-                {rule === "earlyFive" ? `; ${result.needed} more needed` : ""}.
-                No award has been changed.
+              <div className="paper-ticket host-ticket-preview">
+                <header className="paper-ticket-header">
+                  <div className="paper-ticket-title">
+                    <span className="paper-ticket-brand">
+                      ROUND {round.number}
+                    </span>
+                    <p>
+                      {g.players.find((p) => p.id === preview.playerId)?.name}
+                    </p>
+                  </div>
+                  <div className="ticket-code">
+                    <span>TICKET NO.</span>
+                    <strong>{preview.ticketId}</strong>
+                  </div>
+                </header>
+                <TicketGridView grid={preview.grid} />
+              </div>
+              <p className="claim-manual-hint">
+                Compare this ticket with the player’s screen and check their
+                claim manually.
               </p>
+              <p className="form-hint">
+                Four digits show this round’s ticket. They do not prove which QR
+                was scanned. No winning numbers are checked automatically.
+              </p>
+              <button
+                type="button"
+                className="button primary full"
+                disabled={!editable}
+                onClick={() => void confirm()}
+              >
+                <Check size={17} /> Confirm & award
+              </button>
             </div>
           )}
-          <button
-            className="button primary full"
-            disabled={!editable || !playerId || !/^\d{4}$/.test(ticketId)}
-          >
-            <ShieldCheck size={17} /> Verify & award
-          </button>
-          <p className="form-hint">
-            Checks the selected prize against the host’s call history and
-            records one winning ticket only on success. Existing awards are
-            never silently replaced.
-          </p>
-        </form>
+        </>
       )}
     </div>
   );

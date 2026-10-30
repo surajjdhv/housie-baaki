@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+// Legacy backup metadata only; prizes are now checked manually.
 export const verificationRuleSchema = z.enum([
   "manual",
   "row1",
@@ -62,39 +63,6 @@ export const playerTicketSchema = z
   );
 export type PlayerTicket = z.infer<typeof playerTicketSchema>;
 export type TicketGrid = (number | null)[][];
-export type VerificationResult = {
-  grid: TicketGrid;
-  rule: VerificationRule;
-  valid: boolean;
-  required: number[];
-  matched: number[];
-  missing: number[];
-  needed: number;
-};
-
-export function inferredRule(prize: {
-  name: string;
-  verificationRule?: VerificationRule;
-}): VerificationRule {
-  if (prize.verificationRule) return prize.verificationRule;
-  const label = prize.name.trim().toLowerCase().replace(/\s+/g, " ");
-  const rules: Record<string, VerificationRule> = {
-    "first row": "row1",
-    "1st row": "row1",
-    "top row": "row1",
-    "second row": "row2",
-    "2nd row": "row2",
-    "middle row": "row2",
-    "third row": "row3",
-    "3rd row": "row3",
-    "bottom row": "row3",
-    corners: "corners",
-    "early five": "earlyFive",
-    "early 5": "earlyFive",
-    "full house": "fullHouse",
-  };
-  return rules[label] || "manual";
-}
 function base64url(bytes: Uint8Array) {
   return btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, "-")
@@ -193,46 +161,6 @@ export async function generateTicket(
 export function ticketNumbers(grid: TicketGrid) {
   return grid.flat().filter((n): n is number => n !== null);
 }
-export function checkTicket(
-  grid: TicketGrid,
-  rule: VerificationRule,
-  called: number[],
-): VerificationResult {
-  const all = ticketNumbers(grid),
-    set = new Set(called);
-  let required = all;
-  if (rule === "row1" || rule === "row2" || rule === "row3")
-    required = grid[Number(rule.at(-1)) - 1].filter(
-      (n): n is number => n !== null,
-    );
-  if (rule === "corners")
-    required = [grid[0], grid[2]].flatMap((row) => {
-      const numbers = row.filter((n): n is number => n !== null);
-      return [numbers[0], numbers.at(-1)!];
-    });
-  const matched = required.filter((n) => set.has(n)),
-    missing = required.filter((n) => !set.has(n));
-  const needed =
-    rule === "earlyFive" ? Math.max(0, 5 - matched.length) : missing.length;
-  return {
-    grid,
-    rule,
-    required,
-    matched,
-    missing,
-    needed,
-    valid: rule !== "manual" && needed === 0,
-  };
-}
-export async function verifyTicket(
-  key: string,
-  ticketId: string,
-  rule: VerificationRule,
-  called: number[],
-) {
-  return checkTicket(await generateTicket(key, ticketId), rule, called);
-}
-
 /** Fragment-only payload. Parsing never navigates to or fetches the encoded URL. */
 export function encodeRoundLink(payload: RoundPayload, appUrl: string) {
   const valid = roundPayloadSchema.parse(payload);

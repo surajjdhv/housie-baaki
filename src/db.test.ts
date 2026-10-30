@@ -8,7 +8,12 @@ import {
 } from "./db";
 import { fixture } from "./test-fixtures";
 import Dexie from "dexie";
-import { HousieDB, joinRound, toggleTicketMark, awardDigitalClaim } from "./db";
+import {
+  HousieDB,
+  joinRound,
+  toggleTicketMark,
+  awardDigitalTicket,
+} from "./db";
 import { generateTicket, ticketNumbers, type RoundPayload } from "./tickets";
 
 afterEach(async () => {
@@ -17,7 +22,7 @@ afterEach(async () => {
   await db.playerTickets.clear();
 });
 
-describe("offline player tickets and verified transactions", () => {
+describe("offline player tickets and manual award transactions", () => {
   const payload: RoundPayload = {
     version: 1,
     algorithm: 1,
@@ -55,7 +60,7 @@ describe("offline player tickets and verified transactions", () => {
       ),
     ).rejects.toThrow("not on");
   });
-  it("commits a verified award and audit atomically and guards calls/key changes", async () => {
+  it("commits a manual award and audit atomically, allows call undo, and guards key changes", async () => {
     const g = fixture(),
       r = g.rounds[0];
     r.status = "playing";
@@ -65,24 +70,22 @@ describe("offline player tickets and verified transactions", () => {
       p.winners = [];
     });
     await db.gatherings.put(g);
-    await awardDigitalClaim(g.id, "r1", "small", "a", "0000");
+    await awardDigitalTicket(g.id, "r1", "small", "a", "0000");
     expect(
       (await db.gatherings.get(g.id))!.rounds[0].prizes[0].winners,
     ).toHaveLength(1);
     expect(await db.activities.count()).toBe(1);
-    await awardDigitalClaim(g.id, "r1", "small", "a", "0000");
+    await awardDigitalTicket(g.id, "r1", "small", "a", "0000");
     expect(await db.activities.count()).toBe(1);
-    await expect(
-      changeGathering(
-        g.id,
-        (s) => {
-          s.rounds[0].called.pop();
-        },
-        "caller",
-        "Undo call.",
-      ),
-    ).rejects.toThrow("invalidate");
-    expect((await db.gatherings.get(g.id))!.rounds[0].called).toHaveLength(5);
+    await changeGathering(
+      g.id,
+      (s) => {
+        s.rounds[0].called.pop();
+      },
+      "caller",
+      "Undo call.",
+    );
+    expect((await db.gatherings.get(g.id))!.rounds[0].called).toHaveLength(4);
     await expect(
       changeGathering(
         g.id,
@@ -110,12 +113,10 @@ describe("offline player tickets and verified transactions", () => {
       "Undid call 76.",
     );
     const backup = await exportBackup();
-    expect(
-      backup.activities.find((a) => a.verification)?.verification?.called,
-    ).toEqual([6, 12, 54, 67, 76]);
+    expect(backup.activities.find((a) => a.ticketId)?.ticketId).toBe("0000");
     await expect(restoreBackup(backup)).resolves.toBeUndefined();
   });
-  it("keeps failed claims and failed verification logs out of the ledger", async () => {
+  it("keeps invalid IDs and failed audit writes out of the ledger", async () => {
     const g = fixture(),
       r = g.rounds[0];
     r.status = "playing";
@@ -126,8 +127,8 @@ describe("offline player tickets and verified transactions", () => {
     });
     await db.gatherings.put(g);
     await expect(
-      awardDigitalClaim(g.id, "r1", "small", "a", "0000"),
-    ).rejects.toThrow("not valid");
+      awardDigitalTicket(g.id, "r1", "small", "a", "000"),
+    ).rejects.toThrow();
     expect(await db.activities.count()).toBe(0);
     r.called.push(76);
     await db.gatherings.put(g);
@@ -137,7 +138,7 @@ describe("offline player tickets and verified transactions", () => {
     db.activities.hook("creating", fail);
     try {
       await expect(
-        awardDigitalClaim(g.id, "r1", "small", "a", "0000"),
+        awardDigitalTicket(g.id, "r1", "small", "a", "0000"),
       ).rejects.toThrow("Audit failure");
     } finally {
       db.activities.hook("creating").unsubscribe(fail);
@@ -145,6 +146,69 @@ describe("offline player tickets and verified transactions", () => {
     expect(
       (await db.gatherings.get(g.id))!.rounds[0].prizes[0].winners,
     ).toHaveLength(0);
+  });
+  it("retains legacy evidence and financial records after undo, renames, and v2 restore", async () => {
+    const g = fixture(),
+      r = g.rounds[0];
+    r.digital = { algorithm: 1, key: payload.key };
+    r.called = [6, 12, 54, 67, 76];
+    const proof = {
+      ticketId: "0000",
+      algorithm: 1 as const,
+      rule: "row1" as const,
+      called: [...r.called],
+      verifiedAt: 2,
+    };
+    r.prizes[0].verificationRule = "row1";
+    r.prizes[0].winners[0].verification = proof;
+    g.payments.push({
+      id: "payment",
+      from: "a",
+      to: "c",
+      amount: 12000,
+      createdAt: 3,
+    });
+    await restoreBackup({
+      app: "housie-baaki",
+      version: 2,
+      exportedAt: 3,
+      gatherings: [g],
+      playerTickets: [],
+      activities: [
+        {
+          id: "old-proof",
+          gatheringId: g.id,
+          roundId: r.id,
+          prizeId: "small",
+          playerId: "b",
+          createdAt: 2,
+          kind: "award",
+          message: "Previously verified First row.",
+          verification: proof,
+        },
+      ],
+    });
+    await changeGathering(
+      g.id,
+      (s) => {
+        s.rounds[0].called.pop();
+        s.rounds[0].prizes[0].name = "Renamed prize";
+      },
+      "caller",
+      "Undid call.",
+    );
+    const backup = await exportBackup();
+    await restoreBackup(backup);
+    const restored = (await db.gatherings.get(g.id))!;
+    expect(restored.rounds[0].prizes[0].winners[0].verification).toEqual(proof);
+    expect(restored.rounds[0].called).toHaveLength(4);
+    expect(restored.payments).toEqual(g.payments);
+    expect((await db.activities.get("old-proof"))?.verification).toEqual(proof);
+    const malformed = structuredClone(backup);
+    malformed.activities.find((a) => a.verification)!.verification!.ticketId =
+      "123";
+    await expect(restoreBackup(malformed)).rejects.toThrow();
+    expect(await db.gatherings.get(g.id)).toEqual(restored);
   });
   it("includes marked tickets in v2 backups and restores v1 without damaging host records", async () => {
     const g = fixture();
